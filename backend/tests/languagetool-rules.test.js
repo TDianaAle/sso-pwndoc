@@ -32,11 +32,36 @@ module.exports = function(request, app) {
 </rule>
 </rules>`;
 
+        var originalFetch;
+
         beforeAll(async () => {
+            // Mock fetch globally to prevent real calls to languagetool service
+            originalFetch = global.fetch;
+            global.fetch = jest.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ success: true })
+                })
+            );
+
             // Get regular user token
             var response = await request(app).post('/api/users/token').send({username: 'admin', password: 'Admin123'});
             userToken = response.body.datas.token;
             adminToken = userToken; // Admin has all permissions
+        });
+
+        afterAll(() => {
+            global.fetch = originalFetch;
+        });
+
+        beforeEach(() => {
+            global.fetch.mockReset();
+            global.fetch.mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ success: true })
+                })
+            );
         });
 
         describe('GET /api/languagetool-rules/languages', () => {
@@ -46,9 +71,7 @@ module.exports = function(request, app) {
             });
 
             it('Should return languages list', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: true,
                         json: () => Promise.resolve({ languages: ['en', 'fr', 'de'] })
@@ -62,13 +85,11 @@ module.exports = function(request, app) {
                 expect(response.status).toBe(200);
                 expect(response.body.status).toBe('success');
                 expect(response.body.datas.languages).toEqual(['en', 'fr', 'de']);
-
-                global.fetch = originalFetch;
             });
 
             it('Should handle LanguageTool API errors', async () => {
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: false,
                         status: 500,
@@ -81,8 +102,7 @@ module.exports = function(request, app) {
                     .set('Cookie', [`token=JWT ${userToken}`]);
 
                 expect(response.status).toBe(500);
-
-                global.fetch = originalFetch;
+                spy.mockRestore();
             });
         });
 
@@ -179,15 +199,6 @@ module.exports = function(request, app) {
             });
 
             it('Should create a rule with valid XML', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
-                    Promise.resolve({
-                        ok: true,
-                        json: () => Promise.resolve({ success: true })
-                    })
-                );
-
                 var response = await request(app)
                     .post('/api/languagetool-rules')
                     .set('Cookie', [`token=JWT ${adminToken}`])
@@ -195,8 +206,6 @@ module.exports = function(request, app) {
 
                 // Should succeed or fail based on database state
                 expect([200, 201, 400, 500]).toContain(response.status);
-
-                global.fetch = originalFetch;
             });
         });
 
@@ -224,9 +233,7 @@ module.exports = function(request, app) {
             });
 
             it('Should reload rules and restart LanguageTool', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: true,
                         json: () => Promise.resolve({ success: true, pid: 12345 })
@@ -239,8 +246,6 @@ module.exports = function(request, app) {
 
                 // Should succeed or fail based on database state
                 expect([200, 500]).toContain(response.status);
-
-                global.fetch = originalFetch;
             });
         });
 
@@ -252,9 +257,7 @@ module.exports = function(request, app) {
             });
 
             it('Should restart LanguageTool', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: true,
                         json: () => Promise.resolve({ success: true, message: 'Restarted', pid: 12345 })
@@ -267,8 +270,6 @@ module.exports = function(request, app) {
 
                 // Should succeed
                 expect([200, 500]).toContain(response.status);
-
-                global.fetch = originalFetch;
             });
         });
 

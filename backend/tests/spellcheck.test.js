@@ -3,11 +3,36 @@ module.exports = function(request, app) {
         var userToken = '';
         var adminToken = '';
         
+        var originalFetch;
+
         beforeAll(async () => {
+            // Mock fetch globally to prevent real calls to languagetool service
+            originalFetch = global.fetch;
+            global.fetch = jest.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ matches: [] })
+                })
+            );
+
             // Get regular user token
             var response = await request(app).post('/api/users/token').send({username: 'admin', password: 'Admin123'});
             userToken = response.body.datas.token;
             adminToken = userToken; // Admin has all permissions
+        });
+
+        afterAll(() => {
+            global.fetch = originalFetch;
+        });
+
+        beforeEach(() => {
+            global.fetch.mockReset();
+            global.fetch.mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ matches: [] })
+                })
+            );
         });
 
         describe('POST /api/spellcheck', () => {
@@ -19,15 +44,6 @@ module.exports = function(request, app) {
             });
 
             it('Should return empty matches for empty text', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
-                    Promise.resolve({
-                        ok: true,
-                        json: () => Promise.resolve({ matches: [] })
-                    })
-                );
-
                 var response = await request(app)
                     .post('/api/spellcheck')
                     .set('Cookie', [`token=JWT ${userToken}`])
@@ -35,14 +51,10 @@ module.exports = function(request, app) {
 
                 expect(response.status).toBe(200);
                 expect(response.body.datas.matches).toEqual([]);
-
-                global.fetch = originalFetch;
             });
 
             it('Should check spelling and filter dictionary words', async () => {
-                // Mock fetch for LanguageTool API
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: true,
                         json: () => Promise.resolve({
@@ -67,13 +79,10 @@ module.exports = function(request, app) {
                 expect(response.body.datas).toHaveProperty('matches');
                 // If 'test' is in dictionary, it should be filtered out
                 // If not, it should appear in matches
-
-                global.fetch = originalFetch;
             });
 
             it('Should handle LanguageTool API errors', async () => {
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
+                global.fetch.mockImplementation(() =>
                     Promise.resolve({
                         ok: false,
                         status: 502
@@ -87,19 +96,9 @@ module.exports = function(request, app) {
 
                 expect(response.status).toBe(502);
                 expect(response.body.datas).toContain('LanguageTool HTTP 502');
-
-                global.fetch = originalFetch;
             });
 
             it('Should use default language en-CA if not provided', async () => {
-                const originalFetch = global.fetch;
-                global.fetch = jest.fn(() =>
-                    Promise.resolve({
-                        ok: true,
-                        json: () => Promise.resolve({ matches: [] })
-                    })
-                );
-
                 var response = await request(app)
                     .post('/api/spellcheck')
                     .set('Cookie', [`token=JWT ${userToken}`])
@@ -108,8 +107,6 @@ module.exports = function(request, app) {
                 expect(response.status).toBe(200);
                 // Verify that fetch was called with en-CA language
                 expect(global.fetch).toHaveBeenCalled();
-
-                global.fetch = originalFetch;
             });
         });
 

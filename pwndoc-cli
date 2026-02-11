@@ -1,0 +1,471 @@
+#!/bin/bash
+set -uo pipefail
+
+# Default values
+ENV="prod"
+ONLY_BACKEND=false
+ONLY_FRONTEND=false
+TEST_UI=false
+
+# Test-specific flags (combinable)
+RUN_BACKEND=false
+RUN_FRONTEND_UNIT=false
+RUN_FRONTEND_E2E=false
+RUN_ALL=true
+
+# Service groups for targeting with --backend-only / --frontend-only
+BACKEND_SERVICES="mongodb pwndoc-backend pwndoc-languagetools"
+FRONTEND_SERVICES="pwndoc-frontend"
+DEV_FRONTEND_SERVICES="pwndoc-frontend pwndoc-frontend-nginx"
+
+# Build the base docker compose command for the current environment
+dc_cmd() {
+    case "$ENV" in
+        prod)
+            echo "docker compose -f docker-compose.yml -f docker-compose.prod.yml -p pwndoc"
+            ;;
+        prod-local)
+            echo "docker compose -f docker-compose.yml -f docker-compose.prod.local.yml -p pwndoc"
+            ;;
+        dev)
+            echo "docker compose -f docker-compose.yml -f docker-compose.dev.yml -p pwndoc-dev"
+            ;;
+        test)
+            echo "docker compose -f docker-compose.yml -f docker-compose.test.yml -p pwndoc-test"
+            ;;
+    esac
+}
+
+# Get targeted services based on flags and environment
+get_services() {
+    if [ "$ONLY_BACKEND" = true ]; then
+        echo "$BACKEND_SERVICES"
+    elif [ "$ONLY_FRONTEND" = true ]; then
+        if [ "$ENV" = "dev" ]; then
+            echo "$DEV_FRONTEND_SERVICES"
+        else
+            echo "$FRONTEND_SERVICES"
+        fi
+    fi
+}
+
+# Check if targeting an environment with no running containers while another env is running
+check_env() {
+    local current_project other_project other_env_hint
+
+    if [ "$ENV" = "dev" ]; then
+        current_project="pwndoc-dev"
+        other_project="pwndoc"
+        other_env_hint="prod (default) or --prod-local"
+    else
+        current_project="pwndoc"
+        other_project="pwndoc-dev"
+        other_env_hint="--dev"
+    fi
+
+    local current_running
+    current_running=$(docker ps --filter "label=com.docker.compose.project=$current_project" -q 2>/dev/null)
+    local other_running
+    other_running=$(docker ps --filter "label=com.docker.compose.project=$other_project" -q 2>/dev/null)
+
+    if [ -z "$current_running" ] && [ -n "$other_running" ]; then
+        echo "Error: No $ENV containers are running, but another environment is."
+        echo "Did you mean to use $other_env_hint?"
+        exit 1
+    fi
+}
+
+function build {
+    if [ "$ENV" = "prod" ]; then
+        echo "Error: Cannot build in prod environment (uses pre-built images)."
+        echo "Use --prod-local to build locally."
+        exit 1
+    fi
+    $(dc_cmd) build $(get_services)
+}
+
+function up {
+    $(dc_cmd) up -d --build $(get_services)
+}
+
+function down {
+    $(dc_cmd) down
+}
+
+function restart {
+    $(dc_cmd) restart $(get_services)
+}
+
+function stop {
+    $(dc_cmd) stop $(get_services)
+}
+
+function start {
+    $(dc_cmd) start $(get_services)
+}
+
+function logs {
+    $(dc_cmd) logs -f $(get_services)
+}
+
+function status {
+    $(dc_cmd) ps
+}
+
+function update {
+    echo "=== PwnDoc Update ==="
+
+    # 1. For dev/prod-local: git pull to get latest source
+    if [ "$ENV" = "dev" ] || [ "$ENV" = "prod-local" ]; then
+        echo "Pulling latest source code..."
+        git pull
+        if [ $? -ne 0 ]; then
+            echo "Error: git pull failed. Resolve conflicts and retry."
+            exit 1
+        fi
+    fi
+
+    # 2. Pull images (prod) or build (dev/prod-local)
+    if [ "$ENV" = "prod" ]; then
+        echo "Pulling latest images..."
+        $(dc_cmd) pull
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to pull images. Update aborted."
+            exit 1
+        fi
+    else
+        echo "Building images..."
+        $(dc_cmd) build --no-cache $(get_services)
+        if [ $? -ne 0 ]; then
+            echo "Error: Build failed. Update aborted. Existing containers untouched."
+            exit 1
+        fi
+    fi
+
+    # 3. Recreate only changed containers
+    echo "Recreating containers..."
+    $(dc_cmd) up -d $(get_services)
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to recreate containers."
+        echo "Run './pwndoc-cli status' to inspect, or './pwndoc-cli up' to retry."
+        exit 1
+    fi
+
+    # 4. Wait and verify all containers are running
+    echo "Verifying containers..."
+    sleep 5
+    FAILED=$($(dc_cmd) ps --format '{{.Name}} {{.Status}}' | grep -iv "up\|running" || true)
+    if [ -n "$FAILED" ]; then
+        echo "Warning: Some containers may not be healthy:"
+        echo "$FAILED"
+        echo ""
+        echo "Run './pwndoc-cli logs' to investigate."
+        exit 1
+    fi
+
+    # 5. Clean up old images
+    echo "Cleaning up old images..."
+    docker image prune -f > /dev/null 2>&1
+
+    echo "Update complete!"
+    $(dc_cmd) ps
+}
+
+function test_backend {
+    ENV=test
+    $(dc_cmd) build pwndoc-backend
+    $(dc_cmd) run --rm --entrypoint npm pwndoc-backend run test:api
+    rc=$?
+    $(dc_cmd) down
+    return $rc
+}
+
+function test_backend_debug {
+    ENV=test
+    $(dc_cmd) build pwndoc-backend
+    $(dc_cmd) up -d pwndoc-backend
+}
+
+function test_frontend_e2e {
+    ENV=test
+    $(dc_cmd) down
+
+    $(dc_cmd) build pwndoc-backend pwndoc-frontend frontend-tests
+    $(dc_cmd) up -d pwndoc-backend pwndoc-frontend
+
+    if [ "$TEST_UI" = true ]; then
+        $(dc_cmd) up frontend-tests-ui
+    else
+        $(dc_cmd) run --rm frontend-tests
+    fi
+
+    rc=$?
+    $(dc_cmd) down
+    return $rc
+}
+
+function test_frontend_unit {
+    ENV=test
+    $(dc_cmd) build frontend-unit-tests
+    $(dc_cmd) run --rm frontend-unit-tests
+    rc=$?
+    $(dc_cmd) down
+    return $rc
+}
+
+function run_tests {
+    if [ "$RUN_ALL" = true ]; then
+        RUN_BACKEND=true
+        RUN_FRONTEND_UNIT=true
+        RUN_FRONTEND_E2E=true
+    fi
+
+    if [ "$RUN_BACKEND" = true ]; then
+        test_backend
+        rc=$?
+        if [ $rc -ne 0 ]; then return $rc; fi
+    fi
+    if [ "$RUN_FRONTEND_UNIT" = true ]; then
+        test_frontend_unit
+        rc=$?
+        if [ $rc -ne 0 ]; then return $rc; fi
+    fi
+    if [ "$RUN_FRONTEND_E2E" = true ]; then
+        test_frontend_e2e
+        rc=$?
+        if [ $rc -ne 0 ]; then return $rc; fi
+    fi
+}
+
+function print_completion {
+    cat <<'COMP'
+_pwndoc_cli() {
+    local cur commands options
+    cur="${COMP_WORDS[COMP_CWORD]}"
+
+    commands="up deploy down destroy build update stop start restart logs ps status test help completion"
+    options="--dev --prod-local --backend-only --frontend-only"
+
+    # Complete command (first argument)
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        return
+    fi
+
+    # Complete options based on command
+    local cmd="${COMP_WORDS[1]}"
+    case "$cmd" in
+        test)
+            COMPREPLY=($(compgen -W "--backend --frontend-unit --frontend-e2e --ui" -- "$cur"))
+            ;;
+        build)
+            COMPREPLY=($(compgen -W "--dev --prod-local --backend-only --frontend-only" -- "$cur"))
+            ;;
+        help|completion)
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "$options" -- "$cur"))
+            ;;
+    esac
+}
+complete -F _pwndoc_cli pwndoc-cli
+complete -F _pwndoc_cli ./pwndoc-cli
+COMP
+}
+
+### COMMAND LINE CONFIG
+
+print_help() {
+    cat <<EOF
+Usage: ./pwndoc-cli <command> [options]
+
+Commands:
+  up | deploy                 Build, (re)create, and start containers
+  down | destroy              Bring down and remove containers
+  build                       Build containers (without starting)
+  update                      Update PwnDoc (pull/build latest, recreate containers)
+  stop                        Stop containers
+  start                       Start containers
+  restart                     Restart containers
+  logs                        Follow container logs
+  ps|status                   Show container status
+  test                        Run tests
+  help                        Show this help message
+
+Environment options (default: prod):
+  --prod-local                Build and run from local source (production config)
+  --dev                       Use development environment
+
+  No flag needed for prod — it's the default.
+
+Test-specific options (only with command 'test'):
+  --backend                   Run backend API tests
+  --frontend-unit             Run Vitest unit tests (Docker, no browser needed)
+  --frontend-e2e              Run Playwright E2E tests (Docker, full stack)
+  --ui                        Start Playwright in UI mode (implies --frontend-e2e)
+
+  No flags runs all tests (backend + frontend-unit + frontend-e2e).
+  Flags are combinable: --backend --frontend-unit runs both.
+
+Other options:
+  --backend-only              Operate only on backend services
+  --frontend-only             Operate only on frontend services
+
+Examples:
+  ./pwndoc-cli up
+  ./pwndoc-cli deploy --dev
+  ./pwndoc-cli build --prod-local
+  ./pwndoc-cli build --dev --backend-only
+  ./pwndoc-cli update
+  ./pwndoc-cli update --prod-local
+  ./pwndoc-cli logs --backend-only
+  ./pwndoc-cli status
+  ./pwndoc-cli restart --dev --backend-only
+  ./pwndoc-cli test
+  ./pwndoc-cli test --backend
+  ./pwndoc-cli test --frontend-unit
+  ./pwndoc-cli test --frontend-e2e
+  ./pwndoc-cli test --backend --frontend-unit
+  ./pwndoc-cli test --frontend-e2e --ui
+
+Enable tab completion:
+  source <(./pwndoc-cli completion)
+EOF
+}
+
+# Parse command
+if [ -z "${1:-}" ]; then
+    print_help
+    exit 1
+fi
+COMMAND=$1
+shift
+
+# Help alias
+if [[ "$COMMAND" == "help" || "$COMMAND" == "--help" || "$COMMAND" == "-h" ]]; then
+    print_help
+    exit 0
+fi
+
+# Parse flags
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --dev)
+            if [[ "$COMMAND" = "test" ]]; then
+                print_help
+                exit 1
+            fi
+            ENV="dev"
+            ;;
+        --prod)
+            ENV="prod"
+            ;;
+        --prod-local)
+            if [[ "$COMMAND" = "test" ]]; then
+                print_help
+                exit 1
+            fi
+            ENV="prod-local"
+            ;;
+        --backend-only)
+            ONLY_BACKEND=true
+            ONLY_FRONTEND=false
+            ;;
+        --frontend-only)
+            ONLY_FRONTEND=true
+            ONLY_BACKEND=false
+            ;;
+        --backend)
+            if [[ "$COMMAND" != "test" ]]; then
+                print_help
+                exit 1
+            fi
+            RUN_BACKEND=true
+            RUN_ALL=false
+            ;;
+        --frontend-unit)
+            if [[ "$COMMAND" != "test" ]]; then
+                print_help
+                exit 1
+            fi
+            RUN_FRONTEND_UNIT=true
+            RUN_ALL=false
+            ;;
+        --frontend-e2e)
+            if [[ "$COMMAND" != "test" ]]; then
+                print_help
+                exit 1
+            fi
+            RUN_FRONTEND_E2E=true
+            RUN_ALL=false
+            ;;
+        --ui)
+            if [[ "$COMMAND" != "test" ]]; then
+                print_help
+                exit 1
+            fi
+            TEST_UI=true
+            RUN_FRONTEND_E2E=true
+            RUN_ALL=false
+            ;;
+        *)
+            print_help
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+case "$COMMAND" in
+    build)
+        echo "Building $ENV environment..."
+        build
+        ;;
+    up|deploy)
+        echo "Starting $ENV environment..."
+        up
+        ;;
+    down|destroy)
+        check_env
+        echo "Bringing down $ENV environment..."
+        down
+        ;;
+    update)
+        check_env
+        update
+        ;;
+    restart)
+        check_env
+        echo "Restarting $ENV environment..."
+        restart
+        ;;
+    stop)
+        check_env
+        echo "Stopping $ENV environment..."
+        stop
+        ;;
+    start)
+        check_env
+        echo "Starting $ENV environment..."
+        start
+        ;;
+    logs)
+        check_env
+        logs
+        ;;
+    ps|status)
+        check_env
+        status
+        ;;
+    test)
+        echo "Running tests..."
+        run_tests
+        ;;
+    completion)
+        print_completion
+        ;;
+    *)
+        print_help
+        exit 1
+        ;;
+esac

@@ -11,7 +11,27 @@ env:
   IMAGE_NAME_FRONTEND: ghcr.io/${{ github.repository }}-frontend
 
 jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Check if tag is on main branch
+        run: |
+          if ! git branch -r --contains HEAD | grep -q 'origin/main'; then
+            echo "This tag is not on the main branch. Aborting."
+            exit 1
+          fi
+
+      - name: Run all tests
+        run: ./pwndoc-cli test
+
   build-and-push-images:
+    needs: run-tests
     runs-on: ubuntu-latest
 
     permissions:
@@ -21,13 +41,6 @@ jobs:
       id-token: write
 
     steps:
-      - name: Check if branch is main
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "This workflow only runs on main branch."
-            exit 1
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
 

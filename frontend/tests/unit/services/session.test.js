@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
+import { useUserStore } from '@/stores/user'
 
 // Mock dependencies first
 vi.mock('jwt-decode', () => ({
-  default: vi.fn()
+  jwtDecode: vi.fn()
 }))
 
 vi.mock('boot/axios', () => ({
@@ -31,13 +32,8 @@ vi.doMock('src/stores/user', async () => {
   }
 })
 
-// Import after mocks
-import jwtDecode from 'jwt-decode'
-import { api } from 'boot/axios'
-import { routerInstance } from 'boot/router-instance'
-import { useUserStore } from '@/stores/user'
-
-let UserService
+// Re-assigned in beforeEach after resetModules to stay in sync with UserService's imports
+let jwtDecode, api, routerInstance, UserService
 
 describe('Session Management', () => {
   let userStore
@@ -47,16 +43,19 @@ describe('Session Management', () => {
     // Set up Pinia and store before each test
     pinia = createPinia()
     setActivePinia(pinia)
-    
+
     // Get fresh store instance
     userStore = useUserStore()
     mockUserStore = userStore // Set the mock to use our test store
-    
-    // Re-import UserService to get fresh instance with mocked store
+
+    // Re-import everything to get fresh mock instances matching UserService's imports
     vi.resetModules()
+    ;({ jwtDecode } = await import('jwt-decode'))
+    ;({ api } = await import('boot/axios'))
+    ;({ routerInstance } = await import('boot/router-instance'))
     const userServiceModule = await import('@/services/user')
     UserService = userServiceModule.default
-    
+
     vi.clearAllMocks()
     vi.useFakeTimers()
   })

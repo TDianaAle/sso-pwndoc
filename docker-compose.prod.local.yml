@@ -1,0 +1,14 @@
+services:
+  pwndoc-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: pwndoc/backend:prod-local
+
+  pwndoc-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: pwndoc/frontend:prod-local
+    ports:
+      - ${APP_PORT:-8443}:8443
