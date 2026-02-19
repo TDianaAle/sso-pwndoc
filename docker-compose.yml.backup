@@ -1,0 +1,57 @@
+services:
+
+  mongodb:
+    image: mongo:4.2.15
+    command: --wiredTigerCacheSizeGB 1 # 50% of (max RAM - 1GB) - minimum 0.25 (Modify it depending on defined RAM limits)
+    deploy:
+      resources:
+        limits:
+          memory: 3G # Maximum memory to allocate (Modify it depending on host ressources - leave at least 1GB free for host)
+        reservations:
+          memory: 1G # Minimum memory required
+    restart: always
+    environment:
+      - MONGO_DB=pwndoc
+    networks:
+      - backend-internal
+
+  pwndoc-backend:
+    environment:
+      - DB_SERVER=mongodb
+      - DB_NAME=pwndoc
+      - LT_URL=http://pwndoc-languagetools:8010
+      - LT_API_URL=http://pwndoc-languagetools:8020
+    depends_on:
+      - mongodb
+    restart: always
+    networks:
+      - backend-internal
+      - frontend-internal
+
+  pwndoc-languagetools:
+    image: pwndoc/languagetools:prod
+    build:
+      context: ./languagetool/
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - BACKEND_URL=https://pwndoc-backend:4242
+    depends_on:
+      - pwndoc-backend
+    volumes:
+      - ./languagetool/custom-rules:/LanguageTool/custom-rules
+    networks:
+      - backend-internal
+
+  pwndoc-frontend:
+    restart: always
+    depends_on:
+      - pwndoc-backend
+    networks:
+      - frontend-internal
+
+networks:
+  backend-internal:
+    driver: bridge
+  frontend-internal:
+    driver: bridge

@@ -1,0 +1,64 @@
+services:
+
+  mongodb:
+    # No volumes — ephemeral test DB (dropped before each run)
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pwndoc-backend:
+    build:
+      context: ./backend/
+      dockerfile: Dockerfile.test
+    restart: "no"
+    volumes:
+      - ./backend/tests:/app/tests
+      - ./backend/src:/app/src
+      - ./backend/jest.config.js:/app/jest.config.js
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    # Default entrypoint runs test:server (keeps running for debug / frontend tests)
+    # For CI backend tests: docker compose run --rm pwndoc-backend npm run test:api
+
+  pwndoc-frontend:
+    build:
+      context: ./frontend/
+    restart: "no"
+
+  # Test runners (only exist in test)
+  frontend-tests:
+    build:
+      context: ./frontend/
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./frontend/tests/e2e:/app/e2e
+      - ./frontend/tests/playwright.config.js:/app/playwright.config.js
+      - ./frontend/tests/package.json:/app/package.json
+      - ./frontend/tests/package-lock.json:/app/package-lock.json
+    environment:
+      - BASE_URL=https://pwndoc-frontend:8443
+    depends_on:
+      - pwndoc-frontend
+    networks:
+      - frontend-internal
+
+  frontend-tests-ui:
+    extends:
+      service: frontend-tests
+    ports:
+      - ${TEST_UI_PORT:-8082}:8082
+    entrypoint: ["npm", "run", "test:e2e:ui"]
+
+  frontend-unit-tests:
+    build:
+      context: ./frontend/
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/tests/unit:/app/tests/unit
+      - ./frontend/vitest.config.js:/app/vitest.config.js
+    entrypoint: ["npm", "run", "test:run"]
+    restart: "no"

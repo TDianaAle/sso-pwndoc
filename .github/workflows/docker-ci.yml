@@ -1,0 +1,85 @@
+name: Build & Push Docker Images to GHCR
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Runs on version tags (e.g., v1.0.0)
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_BACKEND: ghcr.io/${{ github.repository }}-backend
+  IMAGE_NAME_FRONTEND: ghcr.io/${{ github.repository }}-frontend
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Check if tag is on main branch
+        run: |
+          if ! git branch -r --contains HEAD | grep -q 'origin/main'; then
+            echo "This tag is not on the main branch. Aborting."
+            exit 1
+          fi
+
+      - name: Run all tests
+        run: ./pwndoc-cli test
+
+  build-and-push-images:
+    needs: run-tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME_BACKEND }}
+          tags: |
+            type=semver,pattern={{version}},prefix=
+            type=raw,value=latest
+
+      - name: Build & Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+
+      - name: Extract metadata (tags, labels) for Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME_FRONTEND }}
+          tags: |
+            type=semver,pattern={{version}},prefix=
+            type=raw,value=latest
+
+
+      - name: Build & Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}

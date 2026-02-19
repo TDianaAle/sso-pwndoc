@@ -1,0 +1,65 @@
+{
+  "name": "pwndoc-frontend",
+  "version": "1.0.0",
+  "description": "pwndoc frontend",
+  "productName": "pwndoc",
+  "cordovaId": "org.cordova.quasar.app",
+  "author": "Stanley Hammer",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "export NODE_OPTIONS=--openssl-legacy-provider && quasar build",
+    "dev": "export NODE_OPTIONS=--openssl-legacy-provider && quasar dev",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@quasar/extras": "^1.17.0",
+    "@tiptap/extension-code-block-lowlight": "^2.11.7",
+    "@tiptap/extension-highlight": "^2.11.7",
+    "@tiptap/extension-image": "^2.11.7",
+    "@tiptap/extension-underline": "^2.11.7",
+    "@tiptap/pm": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
+    "@tiptap/vue-3": "^2.11.7",
+    "ae-cvss-calculator": "^1.0.9",
+    "axios": "^0.18.1",
+    "core-js": "^3.47.0",
+    "diff": "^8.0.2",
+    "dompurify": "^3.3.1",
+    "highlight.js": "^11.11.1",
+    "js-yaml": "^4.1.1",
+    "jwt-decode": "^4.0.0",
+    "lodash": "^4.17.21",
+    "lowlight": "^3.3.0",
+    "pinia": "^3.0.4",
+    "quasar": "2.18.6",
+    "socket.io-client": "^4.8.3",
+    "vue": "3.5.26",
+    "vue-i18n": "^11.2.8",
+    "vue-router": "4.6.4",
+    "vue3-sticky-directive": "^0.0.2",
+    "vuedraggable": "^4.1.0"
+  },
+  "devDependencies": {
+    "@quasar/app-webpack": "^4.3.1",
+    "@quasar/cli": "^2.5.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.6",
+    "autoprefixer": "^10.4.23",
+    "jsdom": "^27.4.0",
+    "vitest": "^4.0.16"
+  },
+  "engines": {
+    "node": "^28 || ^26 || ^24 || ^22 || ^20 || ^18",
+    "npm": ">= 6.14.12",
+    "yarn": ">= 1.17.3"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not ie <= 10"
+  ]
+}

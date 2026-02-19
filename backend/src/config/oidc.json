@@ -1,0 +1,10 @@
+{
+    "enabled": true,
+    "issuer": "http://localhost:8080/realms/pwndoc",
+    "clientID": "pwndoc",
+    "clientSecret": "B8hY3KYj0KWSO0sASsOfSFwqTY3QlOi7",
+    "callbackURL": "https://localhost:8443/api/users/oidc/callback",
+    "scope": "openid profile email",
+    "autoProvision": true,
+    "defaultRole": "user"
+}

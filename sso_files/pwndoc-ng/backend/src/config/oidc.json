@@ -1,0 +1,34 @@
+{
+    "dev": {
+        "port": 5252,
+        "host": "",
+        "database": {
+            "name": "pwndoc",
+            "server": "mongo-pwndoc-ng",
+            "port": "27017"
+        },
+        "apidoc": true
+    },
+    "prod": {
+        "port": 4242,
+        "host": "",
+        "database": {
+            "name": "pwndoc",
+            "server": "mongo-pwndoc-ng",
+            "port": "27017"
+        },
+        "apidoc": false,
+        "jwtSecret": "98fef726960c2cd0a40f45a184f0e26a4a5389c6ddec5a809d178bfa2fe5bb48",
+        "jwtRefreshSecret": "92b21f422312a997162368367fa14f789ae3bd6140ce4e60177b706538262b9c"
+    },
+    "test": {
+        "port": 6262,
+        "host": "",
+        "database": {
+            "name": "pwndoc",
+            "server": "127.0.0.1",
+            "port": "27017"
+        },
+        "apidoc": true
+    }
+}

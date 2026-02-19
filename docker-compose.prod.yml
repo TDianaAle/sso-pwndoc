@@ -1,0 +1,17 @@
+services:
+  mongodb:
+    volumes:
+      - ./backend/mongo-data:/data/db
+
+  pwndoc-backend:
+    image: ghcr.io/pwndoc/pwndoc-backend:latest
+    volumes:
+      - ./backend/report-templates:/app/report-templates
+      - ./backend/src/config:/app/src/config
+      - ./backend/src/lib/custom:/app/src/lib/custom
+      - ./backend/backup:/app/backup
+
+  pwndoc-frontend:
+    image: ghcr.io/pwndoc/pwndoc-frontend:latest
+    ports:
+      - ${APP_PORT:-8443}:8443
